@@ -58,8 +58,13 @@ def add_account(current_user):
 
         phone = data.get('phone', '').strip()
         phone_alias = data.get('phone_alias', '').strip() or None
-        custom_app_id = data.get('custom_app_id', '').strip() or None
-        use_custom_app_id = bool(custom_app_id)
+        # 可选：抓包AppID相关字段（用于后续登录或偏好）
+        custom_app_id = (data.get('custom_app_id', '') or '').strip() or None
+        use_custom_app_id = bool(data.get('use_custom_app_id', False))
+
+        # 验证必填字段
+        if not phone:
+            return jsonify({'success': False, 'message': '手机号不能为空'}), 400
 
         # 验证手机号格式
         if not re.match(r'^1[3-9]\d{9}$', phone):
@@ -83,8 +88,9 @@ def add_account(current_user):
             # 复用已存在但被禁用/删除的记录，恢复为正常状态
             existing_any.status = 1
             existing_any.phone_alias = phone_alias
+            # 若请求中携带AppID偏好，同步恢复
             existing_any.custom_app_id = custom_app_id
-            existing_any.use_custom_app_id = use_custom_app_id
+            existing_any.use_custom_app_id = use_custom_app_id and bool(custom_app_id)
             existing_any.auth_status = 0  # 仍未认证
             db.session.flush()
             # 确保存在设备指纹
@@ -111,9 +117,9 @@ def add_account(current_user):
             user_id=current_user.id,
             phone=phone,
             phone_alias=phone_alias,
+            auth_status=0,  # 初始状态为未认证
             custom_app_id=custom_app_id,
-            use_custom_app_id=use_custom_app_id,
-            auth_status=0  # 初始状态为未认证
+            use_custom_app_id=use_custom_app_id and bool(custom_app_id)
         )
         db.session.add(unicom_account)
         db.session.flush()  # 获取ID
@@ -256,7 +262,7 @@ def sms_login(current_user, account_id):
         if not sms_code:
             return jsonify({'success': False, 'message': '验证码不能为空'}), 400
         if not custom_app_id:
-            return jsonify({'success': False, 'message': '自定义AppID不能为空'}), 400
+            return jsonify({'success': False, 'message': 'AppID不能为空'}), 400
 
         # 查找账号
         unicom_account = UnicomAccount.query.filter_by(
@@ -268,8 +274,9 @@ def sms_login(current_user, account_id):
         if not unicom_account:
             return jsonify({'success': False, 'message': '联通账号不存在'}), 404
 
-        # 更新自定义AppID
+        # 更新AppID
         unicom_account.custom_app_id = custom_app_id
+        unicom_account.use_custom_app_id = True
 
         # 调用联通API登录
         result = unicom_api.sms_login(unicom_account, sms_code)
@@ -335,8 +342,10 @@ def token_login(current_user, account_id):
         token_online = data.get('token_online', '').strip()
         app_id = data.get('app_id', '').strip()
 
-        if not token_online or not app_id:
-            return jsonify({'success': False, 'message': 'token_online和app_id不能为空'}), 400
+        if not token_online:
+            return jsonify({'success': False, 'message': 'Token Online不能为空'}), 400
+        if not app_id:
+            return jsonify({'success': False, 'message': 'App ID不能为空'}), 400
 
         # 查找账号
         unicom_account = UnicomAccount.query.filter_by(

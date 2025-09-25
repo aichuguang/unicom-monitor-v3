@@ -14,16 +14,18 @@
               <Phone />
             </el-icon>
             <h4 class="text-lg font-medium text-gray-900 mt-4">
-              暂无已认证手机号
+              {{ accounts.length === 0 ? '暂无手机号' : '暂无已认证手机号' }}
             </h4>
-            <p class="text-gray-500 mt-2">请先添加并认证手机号</p>
+            <p class="text-gray-500 mt-2">
+              {{ accounts.length === 0 ? '请先添加手机号' : '请先认证已添加的手机号' }}
+            </p>
             <el-button
               type="primary"
               @click="$router.push('/profile')"
               class="mt-4"
             >
               <el-icon class="mr-2"><Plus /></el-icon>
-              去添加手机号
+              {{ accounts.length === 0 ? '去添加手机号' : '去认证手机号' }}
             </el-button>
           </div>
           <div v-else>
@@ -673,6 +675,13 @@ const resetFlowBaseline = async () => {
 const querySingleFlow = async (forceRefresh = false) => {
   if (!selectedAccountId.value) return;
 
+  // 检查选中的账号是否已认证
+  const account = accounts.value.find(a => a.id === selectedAccountId.value);
+  if (!account || account.auth_status !== 1) {
+    console.warn('选中的账号未认证，跳过查询');
+    return;
+  }
+
   try {
     singleQueryLoading.value = true;
     // 根据参数决定是否使用缓存
@@ -771,16 +780,33 @@ const loadAccounts = async () => {
     const response = await accountAPI.getAccounts();
     if (response.success) {
       accounts.value = response.data;
-      // 如果有账号，优先选择“展示与偏好”里设置的默认账号，否则选择第一个
+      // 如果有账号，优先选择“展示与偏好”里设置的默认账号，否则选择第一个已认证账号
       if (accounts.value.length > 0) {
         const s = storage.getSettings ? storage.getSettings() : {};
         const preferId = s?.display?.defaultAccountId;
-        const exists = preferId && accounts.value.some(a => a.id === preferId);
-        selectedAccountId.value = exists ? preferId : accounts.value[0].id;
-        // 延迟一下再查询，确保UI更新完成
-        setTimeout(() => {
-          querySingleFlow(false); // 使用缓存查询
-        }, 100);
+
+        let targetAccount = null;
+
+        // 优先使用配置的默认账号（如果已认证）
+        if (preferId) {
+          targetAccount = accounts.value.find(a => a.id === preferId && a.auth_status === 1);
+        }
+
+        // 如果配置的默认账号不存在或未认证，选择第一个已认证账号
+        if (!targetAccount) {
+          targetAccount = accounts.value.find(a => a.auth_status === 1);
+        }
+
+        if (targetAccount) {
+          selectedAccountId.value = targetAccount.id;
+          // 延迟一下再查询，确保UI更新完成
+          setTimeout(() => {
+            querySingleFlow(false); // 使用缓存查询
+          }, 100);
+        } else {
+          // 没有已认证的账号，清空选择
+          selectedAccountId.value = "";
+        }
       }
     }
   } catch (error) {

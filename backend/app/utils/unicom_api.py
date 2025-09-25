@@ -193,6 +193,14 @@ class UnicomAPI:
                             "risk_info": result
                         }
 
+                    # 检查是否是AppID相关错误
+                    if 'appId' in error_msg or 'APP' in error_msg or '应用' in error_msg:
+                        return {
+                            "success": False,
+                            "message": f"AppID错误: {error_msg}，请检查AppID是否正确",
+                            "code": error_code
+                        }
+
                     return {
                         "success": False,
                         "message": error_msg,
@@ -297,6 +305,20 @@ class UnicomAPI:
                             "message": f"账号安全验证: {error_msg}",
                             "code": error_code,
                             "risk_info": result
+                        }
+
+                    # 检查是否是AppID或Token相关错误
+                    if 'appId' in error_msg or 'APP' in error_msg or '应用' in error_msg:
+                        return {
+                            "success": False,
+                            "message": f"AppID错误: {error_msg}，请检查AppID是否正确",
+                            "code": error_code
+                        }
+                    elif 'token' in error_msg.lower() or '令牌' in error_msg:
+                        return {
+                            "success": False,
+                            "message": f"Token错误: {error_msg}，请检查Token是否正确或已过期",
+                            "code": error_code
                         }
 
                     return {

@@ -30,9 +30,9 @@ class UnicomAccount(db.Model):
     last_refresh_at = db.Column(db.DateTime, comment='最后刷新时间')
     refresh_count = db.Column(db.Integer, default=0, comment='刷新次数')
 
-    # 用户自定义AppID
-    custom_app_id = db.Column(db.Text, comment='用户自定义AppID')
-    use_custom_app_id = db.Column(db.Boolean, default=False, comment='是否使用自定义AppID')
+    # 抓包获取的AppID
+    custom_app_id = db.Column(db.Text, comment='从联通APP抓包获取的AppID')
+    use_custom_app_id = db.Column(db.Boolean, default=False, comment='是否使用抓包获取的AppID')
 
     # 监控与通知开关（账号维度）
     monitor_enabled = db.Column(db.Boolean, default=False, index=True, comment='是否开启监控与通知')

@@ -21,7 +21,7 @@ class Config:
     DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
     # 数据库配置
-    MYSQL_HOST = os.environ.get('MYSQL_HOST') or '127.0.0.1
+    MYSQL_HOST = os.environ.get('MYSQL_HOST') or '127.0.0.1'
     MYSQL_PORT = int(os.environ.get('MYSQL_PORT') or 3306)
     MYSQL_USER = os.environ.get('MYSQL_USER') or 'chinaunicom'
     MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD') or 'tkYKDbpz6MSdSAaF'
@@ -38,7 +38,7 @@ class Config:
     }
 
     # Redis配置
-    REDIS_HOST = os.environ.get('REDIS_HOST') or '127.0.0.1
+    REDIS_HOST = os.environ.get('REDIS_HOST') or '127.0.0.1'
     REDIS_PORT = int(os.environ.get('REDIS_PORT') or 6379)
     REDIS_DB = int(os.environ.get('REDIS_DB') or 0)
     REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD') or 'redis_PDkScA'
