@@ -55,8 +55,15 @@ class DeviceFingerprint(db.Model):
             'X-Tingyun': 'c=A|wD9JNk4GH8w;'
         }
     
-    def generate_login_params(self, encrypted_phone, encrypted_password_or_sms, app_id):
-        """生成登录参数"""
+    def generate_login_params(self, encrypted_phone, encrypted_password_or_sms, app_id, login_type='0'):
+        """生成登录参数
+
+        Args:
+            encrypted_phone: 加密的手机号
+            encrypted_password_or_sms: 加密的密码或验证码
+            app_id: 应用ID
+            login_type: 登录类型 ('0': 验证码登录, '1': 密码登录, '2': token刷新)
+        """
         return {
             'isFirstInstall': '1',
             'simCount': '1',
@@ -79,6 +86,7 @@ class DeviceFingerprint(db.Model):
             'deviceModel': self.device_model,
             'androidId': self.android_id,
             'deviceBrand': self.device_brand,
+            'LoginType': login_type,  # 添加登录类型参数
             'uniqueIdentifier': self.unique_identifier,
             'timestamp': self.timestamp,
             'voiceoff_flag': '1',

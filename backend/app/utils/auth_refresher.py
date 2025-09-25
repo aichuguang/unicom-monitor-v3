@@ -148,8 +148,8 @@ class AuthRefresher:
             return True
 
         # 检查常见的认证错误标识
-        error_codes = ['999999', '999998', 'AUTH_FAILED', 'TOKEN_EXPIRED', 'INVALID_TOKEN', 'LOGIN_REQUIRED']
-        error_messages = ['认证失败', '认证失效', '登录失效', 'token过期', '请重新登录', '身份验证失败', '需要重新登录']
+        error_codes = ['999999', '999998', '1', 'AUTH_FAILED', 'TOKEN_EXPIRED', 'INVALID_TOKEN', 'LOGIN_REQUIRED']
+        error_messages = ['认证失败', '认证失效', '登录失效', 'token过期', '请重新登录', '身份验证失败', '需要重新登录', '别处登录', '在别处登录']
 
         # 检查错误码
         if result.get('code') in error_codes:

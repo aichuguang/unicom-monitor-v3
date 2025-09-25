@@ -109,24 +109,21 @@ def query_flow(current_user, account_id):
             # 解析流量信息
             flow_info = _parse_flow_data(flow_data)
 
-            # 计算专属流量和通用流量（从flowSumList中获取）
-            free_flow_used = 0
-            general_flow_used = 0
-            if flow_data.get('flowSumList'):
-                for item in flow_data['flowSumList']:
-                    if item.get('flowtype') == '2':  # 专属流量
-                        free_flow_used = float(item.get('xusedvalue', 0))
-                    elif item.get('flowtype') == '1':  # 通用流量
-                        general_flow_used = float(item.get('xusedvalue', 0))
-
-            # 创建流量记录
+            # 创建流量记录（使用新的解析结果）
             flow_record = FlowRecord(
                 unicom_account_id=account_id,
                 total_data=flow_info.get('total_flow', '0'),
-                used_data=str(general_flow_used),  # 使用通用流量使用量，与前端计算保持一致
+                used_data=flow_info.get('used_flow', '0'),  # 使用总已用流量
                 remain_data=flow_info.get('remaining_flow', '0'),
-                free_data=str(free_flow_used),  # 专属流量使用量
+                free_data=flow_info.get('used_special', '0'),  # 专属流量使用量
                 package_name=flow_info.get('package_name', ''),
+                # 新增分类流量字段
+                used_general=flow_info.get('used_general', '0'),
+                used_special=flow_info.get('used_special', '0'),
+                used_other=flow_info.get('used_other', '0'),
+                remain_general=flow_info.get('remain_general', '0'),
+                remain_special=flow_info.get('remain_special', '0'),
+                remain_other=flow_info.get('remain_other', '0'),
                 raw_response=json.dumps(flow_data, ensure_ascii=False, separators=(',', ':')) if flow_data else None,
                 is_cached=result.get('is_cached', False),
                 query_time=result.get('query_time', 0),
@@ -225,7 +222,17 @@ def query_flow(current_user, account_id):
                         'has_previous_data': last_record is not None
                     },
                     # 添加基准变化数据
-                    'baseline_changes': baseline_changes
+                    'baseline_changes': baseline_changes,
+                    # 新增分类流量数据供前端使用
+                    'flow_summary': {
+                        'used_general': flow_info.get('used_general', '0'),
+                        'used_special': flow_info.get('used_special', '0'),
+                        'used_other': flow_info.get('used_other', '0'),
+                        'remain_general': flow_info.get('remain_general', '0'),
+                        'remain_special': flow_info.get('remain_special', '0'),
+                        'remain_other': flow_info.get('remain_other', '0'),
+                        'extra_packages': flow_info.get('extra_packages', [])
+                    }
                 }
             })
 
@@ -301,24 +308,21 @@ def query_all_flows(current_user):
                     flow_data = result['data']
                     flow_info = _parse_flow_data(flow_data)
 
-                    # 计算专属流量和通用流量（从flowSumList中获取）
-                    free_flow_used = 0
-                    general_flow_used = 0
-                    if flow_data.get('flowSumList'):
-                        for item in flow_data['flowSumList']:
-                            if item.get('flowtype') == '2':  # 专属流量
-                                free_flow_used = float(item.get('xusedvalue', 0))
-                            elif item.get('flowtype') == '1':  # 通用流量
-                                general_flow_used = float(item.get('xusedvalue', 0))
-
-                    # 创建流量记录
+                    # 创建流量记录（使用新的解析结果）
                     flow_record = FlowRecord(
                         unicom_account_id=account.id,
                         total_data=flow_info.get('total_flow', '0'),
-                        used_data=str(general_flow_used),  # 使用通用流量使用量，与前端计算保持一致
+                        used_data=flow_info.get('used_flow', '0'),  # 使用总已用流量
                         remain_data=flow_info.get('remaining_flow', '0'),
-                        free_data=str(free_flow_used),  # 专属流量使用量
+                        free_data=flow_info.get('used_special', '0'),  # 专属流量使用量
                         package_name=flow_info.get('package_name', ''),
+                        # 新增分类流量字段
+                        used_general=flow_info.get('used_general', '0'),
+                        used_special=flow_info.get('used_special', '0'),
+                        used_other=flow_info.get('used_other', '0'),
+                        remain_general=flow_info.get('remain_general', '0'),
+                        remain_special=flow_info.get('remain_special', '0'),
+                        remain_other=flow_info.get('remain_other', '0'),
                         raw_response=json.dumps(flow_data, ensure_ascii=False, separators=(',', ':')) if flow_data else None,
                         is_cached=result.get('is_cached', False),
                         query_time=result.get('query_time', 0),
@@ -565,7 +569,7 @@ def get_flow_statistics(current_user, account_id):
         return jsonify({'success': False, 'message': '获取流量统计失败'}), 500
 
 def _parse_flow_data(flow_data):
-    """解析流量数据"""
+    """解析流量数据 - 兼容所有联通API响应格式"""
     try:
         # 根据联通API响应格式解析
         if not flow_data:
@@ -575,60 +579,181 @@ def _parse_flow_data(flow_data):
                 'remaining_flow': '0',
                 'usage_percentage': 0,
                 'flow_packages': [],
-                'package_name': ''
+                'extra_packages': [],
+                'package_name': '',
+                'used_general': '0',
+                'used_special': '0',
+                'used_other': '0',
+                'remain_general': '0',
+                'remain_special': '0',
+                'remain_other': '0'
             }
 
-        # 联通API返回的字段
+        # 基础流量信息
         total_flow = flow_data.get('sum', '0')  # 总流量
         used_flow = flow_data.get('allUserFlow', '0')  # 已用流量
-        remaining_flow = flow_data.get('canUseFlowAll', '0')  # 剩余流量
-        package_name = flow_data.get('packageName', '')  # 套餐名称
+
+        # 剩余流量：优先canUseFlowAll，备选canUseValueAll
+        remaining_flow = flow_data.get('canUseFlowAll') or flow_data.get('canUseValueAll', '0')
+
+        # 套餐名称：优先packageName，备选从unshared中提取
+        package_name = flow_data.get('packageName', '')
+
+        # 从flowSumList提取分类使用量和剩余量
+        used_general = '0'
+        used_special = '0'
+        used_other = '0'
+        remain_general = '0'
+        remain_special = '0'
+        remain_other = '0'
+
+        flow_sum_list = flow_data.get('flowSumList', [])
+        for item in flow_sum_list:
+            flow_type = str(item.get('flowtype', '')).strip()
+            used_value = str(item.get('xusedvalue', '0'))
+            remain_value = str(item.get('xcanusevalue', '0'))
+
+            if flow_type == '1':  # 通用流量
+                used_general = used_value
+                remain_general = remain_value
+            elif flow_type == '2':  # 专用流量
+                used_special = used_value
+                remain_special = remain_value
+            elif flow_type == '3':  # 其他流量
+                used_other = used_value
+                remain_other = remain_value
 
         # 解析流量包详情
         flow_packages = []
+        extra_packages = []
 
-        # 解析套餐内流量包 (resources)
+        # 方法1：从resources提取流量包
         resources = flow_data.get('resources', [])
         if resources:
             for resource in resources:
-                if resource.get('type') == 'flow':
-                    details = resource.get('details', [])
-                    for detail in details:
-                        # 优先使用addUpItemName，如果没有则使用feePolicyName
-                        package_name = detail.get('addUpItemName') or detail.get('feePolicyName', '流量包')
+                if resource.get('type') == 'flow' and resource.get('details'):
+                    for detail in resource['details']:
+                        # 处理无限量流量包（total为0或空的情况）
+                        total_value = detail.get('total', '0')
+                        used_value = detail.get('use', '0')
+                        remain_value = detail.get('remain', '0')
+
+                        # 识别无限量流量包
+                        is_unlimited = False
+                        try:
+                            # 情况1: total为0或空，且有使用量
+                            if (not total_value or float(total_value) == 0) and used_value and float(used_value) > 0:
+                                is_unlimited = True
+                            # 情况2: remain为负数或异常大的情况（可能是无限量）
+                            elif remain_value and float(remain_value) < 0:
+                                is_unlimited = True
+                        except (ValueError, TypeError):
+                            pass
+
                         package_info = {
-                            'name': package_name,
-                            'total': detail.get('total', '0'),
-                            'used': detail.get('use', '0'),
-                            'remaining': detail.get('remain', '0'),
+                            'name': detail.get('addUpItemName') or detail.get('feePolicyName', '流量包'),
+                            'total': total_value if not is_unlimited else 'unlimited',
+                            'used': used_value,
+                            'remaining': remain_value if not is_unlimited else 'unlimited',
                             'unit': 'MB',
-                            'type': detail.get('flowType', '1')
+                            'type': detail.get('flowType', '1'),
+                            'end_date': detail.get('endDate', ''),
+                            'used_percent': detail.get('usedPercent', '0'),
+                            'source': 'resources',
+                            'is_unlimited': is_unlimited
                         }
                         flow_packages.append(package_info)
+
+                        # 如果没有套餐名称，从主要流量包中提取
+                        if not package_name and detail.get('feePolicyName'):
+                            package_name = detail['feePolicyName']
+
+        # 方法2：从unshared提取流量包（如果resources为空或无详情）
+        if not flow_packages:
+            unshared = flow_data.get('unshared', [])
+            for item in unshared:
+                if item.get('type') == 'unsharedFlowList' and item.get('details'):
+                    for detail in item['details']:
+                        # 处理无限量流量包（total为0或空的情况）
+                        total_value = detail.get('total', '0')
+                        used_value = detail.get('use', '0')
+                        remain_value = detail.get('remain', '0')
+
+                        # 识别无限量流量包
+                        is_unlimited = False
+                        try:
+                            # 情况1: total为0或空，且有使用量
+                            if (not total_value or float(total_value) == 0) and used_value and float(used_value) > 0:
+                                is_unlimited = True
+                            # 情况2: remain为负数或异常大的情况（可能是无限量）
+                            elif remain_value and float(remain_value) < 0:
+                                is_unlimited = True
+                        except (ValueError, TypeError):
+                            pass
+
+                        package_info = {
+                            'name': detail.get('addUpItemName') or detail.get('feePolicyName', '流量包'),
+                            'total': total_value if not is_unlimited else 'unlimited',
+                            'used': used_value,
+                            'remaining': remain_value if not is_unlimited else 'unlimited',
+                            'unit': 'MB',
+                            'type': detail.get('flowType', '1'),
+                            'end_date': detail.get('endDate', ''),
+                            'used_percent': detail.get('usedPercent', '0'),
+                            'source': 'unshared',
+                            'is_unlimited': is_unlimited
+                        }
+                        flow_packages.append(package_info)
+
+                        # 提取套餐名称（优先主套餐）
+                        if not package_name and detail.get('feePolicyName'):
+                            if '大王卡' in detail['feePolicyName'] or detail.get('flowType') == '2':
+                                package_name = detail['feePolicyName']
 
         # 解析套外流量包 (TwResources)
         tw_resources = flow_data.get('TwResources', [])
-        if tw_resources:
-            for tw_resource in tw_resources:
-                if tw_resource.get('type') == 'flow':
-                    details = tw_resource.get('details', [])
-                    for detail in details:
-                        package_info = {
-                            'name': detail.get('addUpItemName', '套外流量包'),  # 使用addUpItemName作为名称
-                            'total': detail.get('total', '0'),
-                            'used': detail.get('use', '0'),
-                            'remaining': detail.get('remain', '0'),
-                            'unit': 'MB',
-                            'type': detail.get('flowType', '1')  # 套外流量通常是通用流量
-                        }
-                        flow_packages.append(package_info)
+        for tw_resource in tw_resources:
+            if tw_resource.get('type') == 'flow' and tw_resource.get('details'):
+                for detail in tw_resource['details']:
+                    # 处理无限量流量包（total为0或空的情况）
+                    total_value = detail.get('total', '0')
+                    used_value = detail.get('use', '0')
+                    remain_value = detail.get('remain', '0')
+
+                    # 识别无限量流量包的多种情况
+                    is_unlimited = False
+                    try:
+                        # 情况1: total为0或空，且有使用量
+                        if (not total_value or float(total_value) == 0) and used_value and float(used_value) > 0:
+                            is_unlimited = True
+                        # 情况2: 包名包含"专享"、"免费"、"大王卡"等关键词，且没有明确总量
+                        elif detail.get('addUpItemName') and any(keyword in detail.get('addUpItemName', '') for keyword in ['专享', '免费', '大王卡', '定向']):
+                            if not total_value or float(total_value) == 0:
+                                is_unlimited = True
+                        # 情况3: remain为负数或异常大的情况（可能是无限量）
+                        elif remain_value and float(remain_value) < 0:
+                            is_unlimited = True
+                    except (ValueError, TypeError):
+                        pass
+
+                    extra_info = {
+                        'name': detail.get('addUpItemName', '套外流量包'),
+                        'total': total_value if not is_unlimited else 'unlimited',
+                        'used': used_value,
+                        'remaining': remain_value if not is_unlimited else 'unlimited',
+                        'unit': 'MB',
+                        'type': detail.get('flowType', '1'),
+                        'used_percent': detail.get('usedPercent', '0'),
+                        'is_extra': True,
+                        'is_unlimited': is_unlimited,
+                        'source': 'TwResources'
+                    }
+                    extra_packages.append(extra_info)
 
         # 计算使用百分比
         try:
-            # 从联通API获取使用百分比
             usage_percentage = float(flow_data.get('sumPercent', 0))
         except (ValueError, AttributeError):
-            # 如果没有直接的百分比，计算
             try:
                 total_num = float(str(total_flow).replace('MB', '').replace('GB', '').replace(',', ''))
                 used_num = float(str(used_flow).replace('MB', '').replace('GB', '').replace(',', ''))
@@ -642,7 +767,14 @@ def _parse_flow_data(flow_data):
             'remaining_flow': remaining_flow,
             'usage_percentage': round(usage_percentage, 2),
             'flow_packages': flow_packages,
-            'package_name': package_name
+            'extra_packages': extra_packages,
+            'package_name': package_name,
+            'used_general': used_general,
+            'used_special': used_special,
+            'used_other': used_other,
+            'remain_general': remain_general,
+            'remain_special': remain_special,
+            'remain_other': remain_other
         }
 
     except Exception as e:
@@ -653,7 +785,14 @@ def _parse_flow_data(flow_data):
             'remaining_flow': '0',
             'usage_percentage': 0,
             'flow_packages': [],
-            'package_name': ''
+            'extra_packages': [],
+            'package_name': '',
+            'used_general': '0',
+            'used_special': '0',
+            'used_other': '0',
+            'remain_general': '0',
+            'remain_special': '0',
+            'remain_other': '0'
         }
 
 def _parse_flow_value(value_str):

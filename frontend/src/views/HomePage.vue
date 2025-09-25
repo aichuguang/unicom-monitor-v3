@@ -243,12 +243,8 @@
                     :type="selectedFlowData?.is_cached ? 'warning' : 'success'"
                     size="small"
                   >
-                    {{ selectedFlowData?.is_cached ? "缓存查询数据" : "实时查询数据" }}
+                    {{ selectedFlowData?.is_cached ? "缓存数据" : "实时数据" }}
                   </el-tag>
-                  <span class="text-gray-500"
-                    >耗时:
-                    {{ (selectedFlowData?.query_time || 0).toFixed(2) }}秒</span
-                  >
                 </div>
                 <div class="text-gray-500">
                   {{ selectedFlowData?.is_cached ?
@@ -260,42 +256,56 @@
             </div>
           </div>
 
-          <!-- 流量包详情（不包含套外流量包） -->
+          <!-- 流量包详情（包含套外流量包） -->
           <div
-            v-if="getNonOutOfBundlePackages().length > 0"
+            v-if="getAllFlowPackages().length > 0"
             class="glass-card p-3"
           >
             <div class="flex items-center justify-between mb-3">
               <h4 class="text-sm font-semibold text-gray-800">流量包详情</h4>
               <span class="text-xs text-gray-600"
-                >共 {{ getNonOutOfBundlePackages().length }} 个流量包</span
+                >共 {{ getAllFlowPackages().length }} 个流量包</span
               >
             </div>
 
             <div class="space-y-2">
               <div
-                v-for="(pkg, index) in getNonOutOfBundlePackages()"
+                v-for="(pkg, index) in getAllFlowPackages()"
                 :key="index"
                 class="border border-gray-200 rounded p-2"
+                :class="{ 'border-orange-300 bg-orange-50': pkg.isExtra }"
               >
                 <div class="flex justify-between items-center mb-1">
-                  <span class="text-xs font-medium text-gray-700">{{
-                    pkg.name
-                  }}</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium text-gray-700">{{
+                      pkg.name
+                    }}</span>
+                    <el-tag
+                      v-if="pkg.isExtra"
+                      type="warning"
+                      size="small"
+                      class="text-xs"
+                    >
+                      套外
+                    </el-tag>
+                  </div>
                   <el-tag
-                    :type="parseFloat(pkg.remaining) > 0 ? 'success' : 'danger'"
+                    :type="getPackageStatusType(pkg)"
                     size="small"
                     class="text-xs"
                   >
-                    {{ parseFloat(pkg.remaining) > 0 ? "有余量" : "已用完" }}
+                    {{ getPackageStatusText(pkg) }}
                   </el-tag>
                 </div>
                 <div class="flex justify-between text-xs mb-1">
                   <span>已用: {{ formatMB(pkg.used) }}</span>
-                  <span
-                    >剩余: {{ formatMB(pkg.remaining) }} / 总量:
-                    {{ formatMB(pkg.total) }}</span
-                  >
+                  <span v-if="pkg.is_unlimited || pkg.total === 'unlimited'">
+                    无限量流量包
+                  </span>
+                  <span v-else>
+                    剩余: {{ formatMB(pkg.remaining) }} / 总量:
+                    {{ formatMB(pkg.total) }}
+                  </span>
                 </div>
                 <div class="w-full bg-gray-200 rounded-full h-1.5">
                   <div
@@ -597,7 +607,6 @@ const onAccountChange = () => {
 
   // 清理流量变化缓存
   flowChangeCache.value = {
-
     generalFlowChange: null,
     freeFlowChange: null,
     lastQueryTime: null
@@ -607,6 +616,13 @@ const onAccountChange = () => {
   if (countdownTimer) {
     clearInterval(countdownTimer);
     countdownTimer = null;
+  }
+
+  // 自动查询新选择的账号流量（使用缓存）
+  if (selectedAccountId.value) {
+    setTimeout(() => {
+      querySingleFlow(false); // 使用缓存查询，避免频繁请求
+    }, 100);
   }
 };
 
@@ -890,9 +906,14 @@ const getPackageDisplayName = () => {
   return name
 }
 
-// 计算专属流量（免流）- 使用flowSumList来获取准确的汇总数据
+// 计算专属流量（免流）- 优先使用后端解析的分类数据
 const getFreeFlowUsed = () => {
-  // 优先使用flowSumList中的汇总数据
+  // 优先使用后端解析的分类数据
+  if (selectedFlowData.value?.flow_summary?.used_special) {
+    return parseFloat(selectedFlowData.value.flow_summary.used_special || 0);
+  }
+
+  // 备选：使用flowSumList中的汇总数据
   if (selectedFlowData.value?.raw_data?.flowSumList) {
     let used = 0;
     selectedFlowData.value.raw_data.flowSumList.forEach((item) => {
@@ -917,7 +938,12 @@ const getFreeFlowUsed = () => {
 };
 
 const getFreeFlowRemain = () => {
-  // 优先使用flowSumList中的汇总数据
+  // 优先使用后端解析的分类数据
+  if (selectedFlowData.value?.flow_summary?.remain_special) {
+    return parseFloat(selectedFlowData.value.flow_summary.remain_special || 0);
+  }
+
+  // 备选：使用flowSumList中的汇总数据
   if (selectedFlowData.value?.raw_data?.flowSumList) {
     let remain = 0;
     selectedFlowData.value.raw_data.flowSumList.forEach((item) => {
@@ -941,9 +967,14 @@ const getFreeFlowRemain = () => {
   return remain;
 };
 
-// 计算通用流量 - 使用flowSumList来获取准确的汇总数据（包含历史套外流量）
+// 计算通用流量 - 优先使用后端解析的分类数据
 const getGeneralFlowUsed = () => {
-  // 优先使用flowSumList中的汇总数据，这包含了历史套外流量包
+  // 优先使用后端解析的分类数据
+  if (selectedFlowData.value?.flow_summary?.used_general) {
+    return parseFloat(selectedFlowData.value.flow_summary.used_general || 0);
+  }
+
+  // 备选：使用flowSumList中的汇总数据，这包含了历史套外流量包
   if (selectedFlowData.value?.raw_data?.flowSumList) {
     let used = 0;
     selectedFlowData.value.raw_data.flowSumList.forEach((item) => {
@@ -1042,11 +1073,45 @@ const getFlowChangeJump = () => {
 
 // 计算流量包使用百分比
 const getPackageUsagePercent = (pkg) => {
-  if (!pkg || !pkg.total || pkg.total === 0) return 0;
+  if (!pkg) return 0;
+
+  // 处理无限量流量包
+  if (pkg.is_unlimited || pkg.total === 'unlimited') {
+    // 无限量流量包显示为满进度条，表示有使用量
+    return pkg.used && parseFloat(pkg.used) > 0 ? 100 : 0;
+  }
+
+  if (!pkg.total || pkg.total === 0) return 0;
   const used = parseFloat(pkg.used || 0);
   const total = parseFloat(pkg.total || 0);
   if (total === 0) return 0;
   return Math.min(Math.round((used / total) * 100), 100);
+};
+
+// 获取流量包状态类型
+const getPackageStatusType = (pkg) => {
+  if (!pkg) return 'info';
+
+  // 无限量流量包
+  if (pkg.is_unlimited || pkg.total === 'unlimited') {
+    return pkg.used && parseFloat(pkg.used) > 0 ? 'success' : 'info';
+  }
+
+  // 有限量流量包
+  return parseFloat(pkg.remaining || 0) > 0 ? 'success' : 'danger';
+};
+
+// 获取流量包状态文本
+const getPackageStatusText = (pkg) => {
+  if (!pkg) return '未知';
+
+  // 无限量流量包
+  if (pkg.is_unlimited || pkg.total === 'unlimited') {
+    return pkg.used && parseFloat(pkg.used) > 0 ? '无限量' : '未使用';
+  }
+
+  // 有限量流量包
+  return parseFloat(pkg.remaining || 0) > 0 ? '有余量' : '已用完';
 };
 
 // 缓存相关
@@ -1215,6 +1280,39 @@ const getNonOutOfBundlePackages = () => {
     // 如果在TwResources中找到，则排除
     return !isInTwResources;
   });
+};
+
+// 获取所有流量包详情（包含套外流量包）
+const getAllFlowPackages = () => {
+  const packages = [];
+
+  // 添加常规流量包
+  if (selectedFlowData.value?.flow_info?.flow_packages) {
+    selectedFlowData.value.flow_info.flow_packages.forEach((pkg) => {
+      packages.push({
+        ...pkg,
+        used: parseFloat(pkg.used || 0),
+        remaining: parseFloat(pkg.remaining || 0),
+        total: parseFloat(pkg.total || 0),
+        isExtra: pkg.name && pkg.name.includes("套外流量")
+      });
+    });
+  }
+
+  // 添加套外流量包（从flow_summary中获取）
+  if (selectedFlowData.value?.flow_summary?.extra_packages) {
+    selectedFlowData.value.flow_summary.extra_packages.forEach((pkg) => {
+      packages.push({
+        ...pkg,
+        used: parseFloat(pkg.used || 0),
+        remaining: parseFloat(pkg.remaining || 0),
+        total: parseFloat(pkg.total || 0),
+        isExtra: true
+      });
+    });
+  }
+
+  return packages;
 };
 
 // 计算通用流量变化

@@ -74,18 +74,23 @@ def _extract_flow_by_type(raw_data: Dict[str, Any]) -> Dict[str, float]:
     try:
         data = raw_data or {}
         result['total_all_mb'] = _parse_mb(data.get('sum'))
-        result['remain_all_mb'] = _parse_mb(data.get('canUseFlowAll'))
+        # 剩余流量：优先canUseFlowAll，备选canUseValueAll
+        result['remain_all_mb'] = _parse_mb(data.get('canUseFlowAll') or data.get('canUseValueAll'))
         result['used_all_mb'] = _parse_mb(data.get('allUserFlow'))
 
-        # 从flowSumList中提取通用和专用流量的使用量
+        # 从flowSumList中提取通用和专用流量的使用量和剩余量
         flow_sum_list = data.get('flowSumList') or []
         for item in flow_sum_list:
             flow_type = str(item.get('flowtype', '')).strip()
             used_value = _parse_mb(item.get('xusedvalue'))
+            remain_value = _parse_mb(item.get('xcanusevalue'))
+
             if flow_type == '1':  # 通用流量
                 result['used_general_mb'] = used_value
+                result['general_remain_mb'] = remain_value
             elif flow_type == '2':  # 专用流量
                 result['used_free_mb'] = used_value
+                result['special_remain_mb'] = remain_value
 
         # 资源维度
         def walk_resources(arr):
@@ -109,25 +114,37 @@ def _extract_flow_by_type(raw_data: Dict[str, Any]) -> Dict[str, float]:
                             if remain_mb is not None: sp_remain += max(0.0, remain_mb)
             return gt_total, gt_remain, sp_total, sp_remain
 
+        # 从resources提取
         resources = data.get('resources') if isinstance(data.get('resources'), list) else []
         gt_total1, gt_remain1, sp_total1, sp_remain1 = walk_resources(resources)
-        # 某些返回还在 TwResources
-        tw = data.get('TwResources') if isinstance(data.get('TwResources'), list) else []
-        gt_total2, gt_remain2, sp_total2, sp_remain2 = walk_resources(tw)
 
-        g_total = (gt_total1 + gt_total2) or None
-        g_remain = (gt_remain1 + gt_remain2) or None
-        s_total = (sp_total1 + sp_total2) or None
-        s_remain = (sp_remain1 + sp_remain2) or None
+        # 从unshared提取
+        unshared = data.get('unshared') if isinstance(data.get('unshared'), list) else []
+        gt_total2, gt_remain2, sp_total2, sp_remain2 = walk_resources(unshared)
+
+        # 从TwResources提取套外流量
+        tw = data.get('TwResources') if isinstance(data.get('TwResources'), list) else []
+        gt_total3, gt_remain3, sp_total3, sp_remain3 = walk_resources(tw)
+
+        # 合并总量数据
+        g_total = (gt_total1 + gt_total2 + gt_total3) or None
+        s_total = (sp_total1 + sp_total2 + sp_total3) or None
+
+        # 剩余量优先使用flowSumList的数据，备选使用resources计算
+        if result['general_remain_mb'] is None:
+            g_remain = (gt_remain1 + gt_remain2 + gt_remain3) or None
+            if g_remain is not None:
+                result['general_remain_mb'] = g_remain
+
+        if result['special_remain_mb'] is None:
+            s_remain = (sp_remain1 + sp_remain2 + sp_remain3) or None
+            if s_remain is not None:
+                result['special_remain_mb'] = s_remain
 
         if g_total:
             result['general_total_mb'] = g_total
-        if g_remain is not None:
-            result['general_remain_mb'] = g_remain
         if s_total:
             result['special_total_mb'] = s_total
-        if s_remain is not None:
-            result['special_remain_mb'] = s_remain
     except Exception:
         pass
     return result

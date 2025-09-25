@@ -26,6 +26,14 @@ class FlowRecord(db.Model):
     free_data = db.Column(db.String(50), comment='免费流量')
     package_name = db.Column(db.String(100), comment='套餐名称')
     end_date = db.Column(db.String(20), comment='结束日期')
+
+    # 分类流量数据（新增）
+    used_general = db.Column(db.String(50), comment='已用通用流量')
+    used_special = db.Column(db.String(50), comment='已用专属流量')
+    used_other = db.Column(db.String(50), comment='已用其他流量')
+    remain_general = db.Column(db.String(50), comment='剩余通用流量')
+    remain_special = db.Column(db.String(50), comment='剩余专属流量')
+    remain_other = db.Column(db.String(50), comment='剩余其他流量')
     
     # 对比数据 - 与上次查询的对比
     last_used_data = db.Column(db.String(50), comment='上次已用流量')
@@ -129,6 +137,12 @@ class FlowRecord(db.Model):
             'free_data': self.free_data,
             'package_name': self.package_name,
             'end_date': self.end_date,
+            'used_general': self.used_general,
+            'used_special': self.used_special,
+            'used_other': self.used_other,
+            'remain_general': self.remain_general,
+            'remain_special': self.remain_special,
+            'remain_other': self.remain_other,
             'last_used_data': self.last_used_data,
             'last_free_data': self.last_free_data,
             'last_total_data': self.last_total_data,

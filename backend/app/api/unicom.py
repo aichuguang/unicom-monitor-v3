@@ -362,8 +362,8 @@ def token_login(current_user, account_id):
         unicom_account.app_id = app_id
         unicom_account.login_method = 'token'
 
-        # 调用联通API刷新
-        result = unicom_api.token_refresh(unicom_account)
+        # 调用联通API进行token登录
+        result = unicom_api.token_login(unicom_account)
 
         if result['success']:
             # 保存认证信息
@@ -456,7 +456,28 @@ def refresh_auth(current_user, account_id):
                 'data': unicom_account.to_dict(include_sensitive=True)
             })
         else:
-            return jsonify(result), 400
+            # 刷新失败，返回详细错误信息
+            error_msg = result.get('message', '认证刷新失败')
+            error_code = result.get('code')
+            need_reauth = result.get('need_reauth', False)
+
+            # 记录刷新失败日志
+            SystemLog.log_action(
+                action='refresh_auth_failed',
+                description=f'刷新认证失败 {unicom_account.phone}: {error_msg}',
+                user_id=current_user.id,
+                unicom_account_id=account_id,
+                ip_address=request.remote_addr,
+                user_agent=request.headers.get('User-Agent'),
+                module='unicom'
+            )
+
+            return jsonify({
+                'success': False,
+                'message': error_msg,
+                'code': error_code,
+                'need_reauth': need_reauth
+            }), 400
 
     except Exception as e:
         db.session.rollback()

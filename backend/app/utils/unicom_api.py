@@ -218,12 +218,12 @@ class UnicomAPI:
             logger.error(f"验证码登录异常: {e}")
             return {"success": False, "message": f"登录处理失败: {str(e)}"}
 
-    def token_refresh(self, unicom_account):
-        """Token刷新登录"""
+    def token_login(self, unicom_account):
+        """Token登录（使用onLine.htm接口进行token+appid登录）"""
         start_time = time.time()
 
         try:
-            logger.info(f"开始Token刷新: {unicom_account.phone}")
+            logger.info(f"开始Token登录: {unicom_account.phone}")
 
             if not unicom_account.token_online or not unicom_account.get_effective_app_id():
                 return {"success": False, "message": "缺少Token或AppID信息"}
@@ -239,27 +239,149 @@ class UnicomAPI:
             # 获取代理配置
             proxies = self._get_proxy_config(device_fingerprint)
 
-            # 加密手机号
-            encrypted_phone = self.rsa_encrypt(unicom_account.phone)
-            if not encrypted_phone:
-                return {"success": False, "message": "手机号加密失败"}
-
-            # 使用固定的密码加密数据（从成功的抓包获取）
-            encrypted_password = "QsKVUpKoYExian%2Fi1qghiW6ZZrMTf5sBUYrK10sjsiKq1XgURNEvQrNasndJRW9TF4VXU1zkbfQDy5jXGQojCqHxkTUt8qNdEzUQClnSw1kHomQVPRsb%2FmDRZ96pG6rwbIi%2FlKbhoq0k2LALZaTLphRVE4j78T1XSaO%2Ba7bo5OA%3D"
-
-            # 构建刷新参数
-            post_data = device_fingerprint.generate_login_params(
-                encrypted_phone,
-                encrypted_password,
-                unicom_account.get_effective_app_id()
-            )
+            # 构建onLine.htm登录参数
+            post_data = {
+                'isFirstInstall': '1',
+                'reqtime': str(int(time.time() * 1000)),  # 当前时间戳（毫秒）
+                'deviceOS': device_fingerprint.device_os,
+                'latitude': '',
+                'netWay': '',
+                'deviceCode': device_fingerprint.device_id,
+                'version': f"android@{device_fingerprint.app_version}",
+                'deviceId': device_fingerprint.device_id,
+                'pushPlatform': device_fingerprint.push_platform,
+                'token_online': unicom_account.token_online,  # 用户提供的token
+                'platformToken': 'v2-CRvjk3iX6vY96Dn6_EbWozerG6nJ206KIXJSJ7C9ttZs6tKcYH3tAw4O-g',
+                'provinceChanel': 'general',
+                'appId': unicom_account.get_effective_app_id(),  # 用户提供的appId
+                'simOperator': '5,cmcc,460,00,cn@5,--,460,00,cn',
+                'deviceModel': device_fingerprint.device_model,
+                'step': 'login',  # 登录模式
+                'androidId': device_fingerprint.android_id,
+                'deviceBrand': device_fingerprint.device_brand,
+                'flushkey': '1',  # 登录标识
+                'uniqueIdentifier': device_fingerprint.unique_identifier,
+                'longitude': ''
+            }
 
             # 获取请求头
             headers = device_fingerprint.generate_request_headers()
 
-            # 发送刷新请求 (Token刷新使用login.htm)
+            logger.info(f"Token登录请求参数: {post_data}")
+
+            # 发送登录请求到onLine.htm
             response = self.session.post(
-                'https://m.client.10010.com/mobileService/login.htm',
+                'https://m.client.10010.com/mobileService/onLine.htm',
+                data=post_data,
+                headers=headers,
+                proxies=proxies,
+                timeout=30
+            )
+
+            query_time = time.time() - start_time
+            logger.info(f"Token登录完成，耗时: {query_time:.3f}秒，状态码: {response.status_code}")
+            logger.info(f"登录响应: {response.text}")
+
+            try:
+                result = response.json()
+
+                if result.get('code') == '0':
+                    # 登录成功
+                    cookies_string = self._extract_cookies(response)
+
+                    auth_data = {
+                        'phone': unicom_account.phone,
+                        'token_online': result.get('token_online'),  # 可能会返回新的token
+                        'ecs_token': result.get('ecs_token'),        # 新的ecs_token
+                        'appId': result.get('appId') or unicom_account.get_effective_app_id(),
+                        'cookies': cookies_string,
+                        'loginTime': int(time.time()),
+                        'loginMethod': 'token_login',
+                        'query_time': query_time,
+                        'invalidat': result.get('invalidat')  # 过期时间
+                    }
+
+                    logger.info(f"Token登录成功: {unicom_account.phone}")
+                    return {
+                        "success": True,
+                        "message": "Token登录成功",
+                        "data": auth_data
+                    }
+                else:
+                    error_msg = result.get('dsc') or result.get('desmobile') or '登录失败'
+                    error_code = result.get('code')
+
+                    logger.warning(f"Token登录失败: {unicom_account.phone} - {error_code}: {error_msg}")
+
+                    return {
+                        "success": False,
+                        "message": f"Token登录失败: {error_msg}",
+                        "code": error_code
+                    }
+
+            except json.JSONDecodeError:
+                logger.error(f"Token登录响应不是JSON格式: {response.text}")
+                return {"success": False, "message": "服务器响应格式错误"}
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Token登录网络请求失败: {e}")
+            return {"success": False, "message": f"网络请求失败: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Token登录异常: {e}")
+            return {"success": False, "message": f"登录处理失败: {str(e)}"}
+
+    def token_refresh(self, unicom_account):
+        """Token刷新（使用onLine.htm专用刷新接口）"""
+        start_time = time.time()
+
+        try:
+            logger.info(f"开始Token刷新: {unicom_account.phone}")
+
+            if not unicom_account.token_online or not unicom_account.get_effective_app_id():
+                return {"success": False, "message": "缺少Token或AppID信息，请重新认证"}
+
+            # 随机延迟避免风控
+            time.sleep(random.uniform(0.5, 2.0))
+
+            # 获取设备指纹
+            device_fingerprint = unicom_account.device_fingerprint
+            if not device_fingerprint:
+                return {"success": False, "message": "设备指纹未初始化"}
+
+            # 获取代理配置
+            proxies = self._get_proxy_config(device_fingerprint)
+
+            # 构建onLine.htm刷新参数
+            post_data = {
+                'isFirstInstall': '1',
+                'reqtime': str(int(time.time() * 1000)),  # 当前时间戳（毫秒）
+                'deviceOS': device_fingerprint.device_os,
+                'latitude': '',
+                'netWay': '',
+                'deviceCode': device_fingerprint.device_id,
+                'version': f"android@{device_fingerprint.app_version}",
+                'deviceId': device_fingerprint.device_id,
+                'pushPlatform': device_fingerprint.push_platform,
+                'token_online': unicom_account.token_online,  # 现有token
+                'platformToken': 'v2-CRvjk3iX6vY96Dn6_EbWozerG6nJ206KIXJSJ7C9ttZs6tKcYH3tAw4O-g',
+                'provinceChanel': 'general',
+                'appId': unicom_account.get_effective_app_id(),
+                'simOperator': '5,cmcc,460,00,cn@5,--,460,00,cn',
+                'deviceModel': device_fingerprint.device_model,
+                'step': 'background',  # 关键参数：后台刷新
+                'androidId': device_fingerprint.android_id,
+                'deviceBrand': device_fingerprint.device_brand,
+                'flushkey': '2',  # 刷新标识
+                'uniqueIdentifier': device_fingerprint.unique_identifier,
+                'longitude': ''
+            }
+
+            # 获取请求头
+            headers = device_fingerprint.generate_request_headers()
+
+            # 发送刷新请求到onLine.htm
+            response = self.session.post(
+                'https://m.client.10010.com/mobileService/onLine.htm',
                 data=post_data,
                 headers=headers,
                 proxies=proxies,
@@ -279,61 +401,110 @@ class UnicomAPI:
 
                     auth_data = {
                         'phone': unicom_account.phone,
-                        'token_online': result.get('token_online') or unicom_account.token_online,
-                        'ecs_token': result.get('ecs_token'),
+                        'token_online': result.get('token_online'),  # 新的token
+                        'ecs_token': result.get('ecs_token'),        # 新的ecs_token
                         'appId': result.get('appId') or unicom_account.get_effective_app_id(),
                         'cookies': cookies_string,
                         'loginTime': int(time.time()),
-                        'loginMethod': 'token_refresh',
-                        'query_time': query_time
+                        'loginMethod': 'online_refresh',
+                        'query_time': query_time,
+                        'invalidat': result.get('invalidat')  # 过期时间
                     }
 
+                    logger.info(f"Token刷新成功: {unicom_account.phone}, 新token: {result.get('token_online', '')[:50]}...")
                     return {
                         "success": True,
                         "message": "Token刷新成功",
                         "data": auth_data
                     }
                 else:
-                    error_msg = result.get('dsc') or '刷新失败'
+                    error_msg = result.get('dsc') or result.get('desmobile') or '刷新失败'
                     error_code = result.get('code')
 
-                    # 检查是否是风控错误
-                    if error_code == 'ECS99999':
-                        logger.warning(f"Token刷新遇到风控: {result}")
+                    logger.warning(f"Token刷新失败: {unicom_account.phone} - {error_code}: {error_msg}")
+
+                    # 检查具体错误类型
+                    if error_code == '1' and '别处登录' in error_msg:
                         return {
                             "success": False,
-                            "message": f"账号安全验证: {error_msg}",
+                            "message": "账号在别处登录，Token已失效，请重新认证",
                             "code": error_code,
-                            "risk_info": result
+                            "need_reauth": True
                         }
-
-                    # 检查是否是AppID或Token相关错误
-                    if 'appId' in error_msg or 'APP' in error_msg or '应用' in error_msg:
+                    else:
                         return {
                             "success": False,
-                            "message": f"AppID错误: {error_msg}，请检查AppID是否正确",
-                            "code": error_code
+                            "message": f"Token刷新失败: {error_msg}",
+                            "code": error_code,
+                            "need_reauth": True
                         }
-                    elif 'token' in error_msg.lower() or '令牌' in error_msg:
-                        return {
-                            "success": False,
-                            "message": f"Token错误: {error_msg}，请检查Token是否正确或已过期",
-                            "code": error_code
-                        }
-
-                    return {
-                        "success": False,
-                        "message": f"Token刷新失败: {error_msg}",
-                        "code": error_code
-                    }
 
             except json.JSONDecodeError:
                 logger.error(f"Token刷新响应不是JSON格式: {response.text}")
-                return {"success": False, "message": "刷新响应格式错误"}
+                return {"success": False, "message": "服务器响应格式错误", "need_reauth": True}
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Token刷新网络请求失败: {e}")
+            return {"success": False, "message": f"网络请求失败: {str(e)}"}
         except Exception as e:
             logger.error(f"Token刷新异常: {e}")
-            return {"success": False, "message": f"Token刷新失败: {str(e)}"}
+            return {"success": False, "message": f"刷新处理失败: {str(e)}"}
+
+    def _verify_token_by_flow_query(self, unicom_account, start_time):
+        """通过流量查询验证token有效性（回退方案）"""
+        try:
+            logger.info(f"通过流量查询验证Token有效性: {unicom_account.phone}")
+
+            # 尝试查询流量来验证token
+            flow_result = self.query_flow(unicom_account, use_cache=False)
+
+            query_time = time.time() - start_time
+
+            if flow_result['success']:
+                # 流量查询成功，说明token有效
+                logger.info(f"Token验证成功: {unicom_account.phone}")
+
+                # 返回当前的认证信息（无需更新）
+                auth_data = {
+                    'phone': unicom_account.phone,
+                    'token_online': unicom_account.token_online,
+                    'ecs_token': unicom_account.ecs_token,
+                    'appId': unicom_account.get_effective_app_id(),
+                    'cookies': unicom_account.cookies,
+                    'loginTime': int(time.time()),
+                    'loginMethod': 'token_verify',
+                    'query_time': query_time
+                }
+
+                return {
+                    "success": True,
+                    "message": "Token验证成功",
+                    "data": auth_data
+                }
+            else:
+                # 流量查询失败，检查是否是认证错误
+                error_code = flow_result.get('code')
+                error_msg = flow_result.get('message', 'Token验证失败')
+
+                if flow_result.get('auth_error') or error_code in ['999999', '999998']:
+                    logger.warning(f"Token已失效: {unicom_account.phone} - {error_msg}")
+                    return {
+                        "success": False,
+                        "message": "Token已失效，请重新认证",
+                        "code": error_code,
+                        "need_reauth": True
+                    }
+                else:
+                    # 其他错误，可能是网络问题等
+                    logger.warning(f"Token验证遇到其他错误: {unicom_account.phone} - {error_msg}")
+                    return {
+                        "success": False,
+                        "message": f"Token验证失败: {error_msg}",
+                        "code": error_code
+                    }
+        except Exception as e:
+            logger.error(f"Token验证异常: {e}")
+            return {"success": False, "message": f"验证处理失败: {str(e)}"}
 
     def query_flow(self, unicom_account, use_cache=True, user_id=None):
         """查询流量信息"""

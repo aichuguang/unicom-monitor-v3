@@ -1113,7 +1113,18 @@ const refreshAuth = async (account) => {
     }
   } catch (error) {
     console.error('刷新认证失败:', error)
-    ElMessage.error('刷新失败，请检查网络连接')
+
+    // 处理HTTP错误响应
+    if (error.response && error.response.data) {
+      const errorData = error.response.data
+      if (errorData.need_reauth) {
+        ElMessage.error(`${errorData.message || '认证已失效'}，请重新登录`)
+      } else {
+        ElMessage.error(errorData.message || '刷新失败')
+      }
+    } else {
+      ElMessage.error('刷新失败，请检查网络连接')
+    }
   } finally {
     refreshingIds.value = refreshingIds.value.filter(id => id !== account.id)
   }
