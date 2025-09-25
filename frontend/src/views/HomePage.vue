@@ -302,6 +302,9 @@
                   <span v-if="pkg.is_unlimited || pkg.total === 'unlimited'">
                     无限量流量包
                   </span>
+                  <span v-else-if="parseFloat(pkg.remaining || 0) <= 0">
+                    总量: {{ formatMB(pkg.total) }}
+                  </span>
                   <span v-else>
                     剩余: {{ formatMB(pkg.remaining) }} / 总量:
                     {{ formatMB(pkg.total) }}
