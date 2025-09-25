@@ -1,0 +1,31 @@
+# 联通流量监控系统 v3.0 - 最小化依赖
+
+# Flask核心
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Migrate==4.0.5
+Flask-JWT-Extended==4.5.2
+Flask-CORS==4.0.0
+
+# 数据库
+PyMySQL==1.1.0
+redis==5.0.1
+
+# HTTP请求
+requests==2.31.0
+
+# 加密
+pycryptodome==3.19.0
+
+# 配置管理
+python-dotenv==1.0.0
+
+# 任务调度
+APScheduler==3.10.4
+
+# 时区处理
+pytz==2023.3
+python-dateutil==2.8.2
+
+# 部署工具
+gunicorn==21.2.0
